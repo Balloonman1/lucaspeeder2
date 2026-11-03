@@ -1,0 +1,24 @@
+{
+  "name": "lucaspeeder2",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "terrain": "node tools/gen-terrain.mjs",
+    "shot": "node tools/screenshot.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.33.2",
+    "@babylonjs/loaders": "^9.33.2",
+    "@babylonjs/materials": "^9.33.2"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.5"
+  }
+}
