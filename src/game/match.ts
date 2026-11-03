@@ -64,7 +64,7 @@ export class Match {
     const boosting = e.boost > 0, maxS = boosting ? st.speed * 2 : st.speed;
     if (!e.airborne) { if (inp.fwd) e.speed += (boosting ? st.accel * 1.8 : st.accel) * dt; else if (inp.back) e.speed -= 40 * grip * dt; else e.speed *= Math.max(0, 1 - 1.6 * dt); }
     e.speed = clamp(e.speed, -10, e.airborne ? Math.max(maxS, e.speed) : maxS);
-    const turnIn = inp.turn !== undefined ? inp.turn : (inp.left ? 1 : 0) - (inp.right ? 1 : 0);
+    const turnIn = inp.turn !== undefined ? inp.turn : (inp.right ? 1 : 0) - (inp.left ? 1 : 0);   // +steer = clockwise = right in Babylon's left-handed world
     e.steer += (turnIn - e.steer) * Math.min(1, 10 * dt);
     const turnRate = st.turn * (e.airborne ? 0.35 : grip) * Math.min(1, 0.35 + Math.abs(e.speed) / 14);
     e.heading += e.steer * turnRate * dt * (e.speed >= 0 ? 1 : -1);

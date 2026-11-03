@@ -164,7 +164,7 @@ async function main() {
       const far = camMode === 'far' ? 1.6 : 1;
       const back = (7.4 + Math.abs(e.speed) * 0.11 + (e.boost > 0 ? 1.2 : 0)) * far, up = (2.5 + spdN * 0.4) * far + e.y - ground - 0.9;
       const lag = clamp(e.steer * 1.4, -1.6, 1.6); // lateral lag on turns
-      const cx = e.x - fx_ * back + fz_ * lag, cz = e.z - fz_ * back - fx_ * lag;
+      const cx = e.x - fx_ * back - fz_ * lag, cz = e.z - fz_ * back + fx_ * lag;
       const cy = Math.max(terrain.height(cx, cz) + 1.6, ground + up);
       wantPos = new Vector3(cx, cy, cz); wantTgt = new Vector3(e.x + fx_ * 5 * far, e.y + 0.8, e.z + fz_ * 5 * far);
     }
@@ -187,10 +187,10 @@ async function main() {
       v.bike.root.setEnabled(r.alive); if (!r.alive) { for (const w of v.wash) w.emitRate = 0; continue; }
       v.bike.root.position.set(r.x, r.y - 0.45, r.z);
       const flipAng = r.flipping ? r.flipA * Math.PI * 2 : 0;
-      Quaternion.RotationYawPitchRollToRef(r.heading, r.pitch - flipAng, -r.lean * 0.9 + r.roll, tmpQ); if (!v.bike.root.rotationQuaternion) v.bike.root.rotationQuaternion = new Quaternion(); v.bike.root.rotationQuaternion.copyFrom(tmpQ);
+      Quaternion.RotationYawPitchRollToRef(r.heading, r.pitch - flipAng, r.lean * 0.9 + r.roll, tmpQ); if (!v.bike.root.rotationQuaternion) v.bike.root.rotationQuaternion = new Quaternion(); v.bike.root.rotationQuaternion.copyFrom(tmpQ);
       const spin = (2 + Math.abs(r.speed) * 0.9 + (r.boost > 0 ? 30 : 0)) * dt * 6; for (const rot of v.bike.rotors) rot.rotation.z += spin;
-      v.bike.barsNode.rotation.y = -r.steer * 0.25;
-      v.rider.setLean(r.lean, r.airborne ? -0.4 : 0, r.airborne ? 1 : clamp(Math.abs(r.speed) / 30, 0, 1));
+      v.bike.barsNode.rotation.y = r.steer * 0.25;
+      v.rider.setLean(-r.lean, r.airborne ? -0.4 : 0, r.airborne ? 1 : clamp(Math.abs(r.speed) / 30, 0, 1));
       const ground = terrain.height(r.x, r.z); const hover = r.y - ground; const onTrail = splat.sample(r.x, r.z)[0] > 0.4;
       const rate = r.airborne || hover > 2.2 ? 0 : clamp(Math.abs(r.speed) / 28, 0.1, 1) * (onTrail ? 70 : 35) * (q.particles / 900);
       for (const w of v.wash) { w.emitRate = rate; const s = splat.sample(r.x, r.z); const sand = s[1]; w.color1.set(0.78 - sand * 0.05, 0.66, 0.5 + sand * 0.1, onTrail ? 0.4 : 0.22); w.color2.copyFrom(w.color1); w.color2.a *= 0.7; }
