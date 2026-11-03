@@ -62,6 +62,8 @@ async function main() {
   const paintSel = $('paintSel') as HTMLSelectElement, trimSel = $('trimSel') as HTMLSelectElement, qualitySel = $('qualitySel') as HTMLSelectElement;
   BIKE_COLORS.forEach((c, i) => { const o = document.createElement('option'); o.value = c; o.textContent = ['Blue', 'Red', 'Orange', 'Green', 'Pink', 'Cyan', 'Purple', 'White', 'Tangerine', 'Black'][i]; paintSel.appendChild(o); });
   TRIMS.forEach((c, i) => { const o = document.createElement('option'); o.value = c; o.textContent = ['Cyan', 'Pink', 'Yellow', 'Green', 'White', 'Red', 'Blue', 'Purple'][i]; trimSel.appendChild(o); });
+  const CAMS = ['chase', 'far', 'hood'] as const; type CamMode = typeof CAMS[number]; let camMode: CamMode = 'chase'; try { const c = localStorage.getItem('sf2.cam') as CamMode; if (CAMS.includes(c)) camMode = c; } catch {}
+  const camSel = $('camSel') as HTMLSelectElement; camSel.value = camMode; camSel.onchange = () => { camMode = camSel.value as CamMode; try { localStorage.setItem('sf2.cam', camMode); } catch {} };
   paintSel.value = me.color; trimSel.value = me.accent; ($('nameIn') as HTMLInputElement).value = me.name; qualitySel.value = q.name;
   qualitySel.onchange = () => { saveQuality(qualitySel.value); location.reload(); };
   let matchLen = 90; for (const b of Array.from(document.querySelectorAll('.mode')) as HTMLButtonElement[]) b.onclick = () => { document.querySelectorAll('.mode').forEach(x => x.classList.remove('on')); b.classList.add('on'); matchLen = +b.dataset.len!; };
@@ -70,7 +72,7 @@ async function main() {
 
   // ---------- match state ----------
   let match: Match | null = null; let riderVis = new Map<string, RiderVis>(); let itemVis = new Map<number, ItemVis>(); let tomatoMeshes: Mesh[] = [];
-  let paused = false; let camMode: 'chase' | 'hood' = 'chase'; let spectating: string | null = null; let shake = 0; let lastT = performance.now();
+  let paused = false; let spectating: string | null = null; let shake = 0; let lastT = performance.now();
   const keys: Record<string, boolean> = {}; const jumpReq = { jump: false, flip: false }; let lastJump = 0; let throwReq = false;
   const tomatoM = new PBRMaterial('tomatoFlight', scene); tomatoM.albedoColor = new Color3(0.8, 0.05, 0.03); tomatoM.roughness = 0.2; tomatoM.clearCoat.isEnabled = true;
 
@@ -129,7 +131,7 @@ async function main() {
   }
 
   // ---------- input ----------
-  addEventListener('keydown', ev => { const k = ev.key.toLowerCase(); keys[k] = true; if (k === ' ') { ev.preventDefault(); requestJump(); } if (k === 'f') throwReq = true; if (k === 'p' && match && match.running) togglePause(); if (k === 'c') camMode = camMode === 'chase' ? 'hood' : 'chase'; if (k === 'tab' && match && !match.riders.find(r => r.id === match!.localId)!.alive) { ev.preventDefault(); cycleSpectate(); } });
+  addEventListener('keydown', ev => { const k = ev.key.toLowerCase(); keys[k] = true; if (k === ' ') { ev.preventDefault(); requestJump(); } if (k === 'f') throwReq = true; if (k === 'p' && match && match.running) togglePause(); if (k === 'c') { camMode = CAMS[(CAMS.indexOf(camMode) + 1) % CAMS.length]; camSel.value = camMode; try { localStorage.setItem('sf2.cam', camMode); } catch {} hud.message('Camera: ' + camSel.options[camSel.selectedIndex].text, 'boost'); } if (k === 'tab' && match && !match.riders.find(r => r.id === match!.localId)!.alive) { ev.preventDefault(); cycleSpectate(); } });
   addEventListener('keyup', ev => { keys[ev.key.toLowerCase()] = false; });
   function requestJump() { const now = performance.now(); if (now - lastJump < 420) jumpReq.flip = true; jumpReq.jump = true; lastJump = now; }
   function togglePause() { paused = !paused; $('pause').classList.toggle('hidden', !paused); }
@@ -159,11 +161,12 @@ async function main() {
     } else if (camMode === 'hood') {
       wantPos = new Vector3(e.x + fx_ * 0.9, e.y + 1.35, e.z + fz_ * 0.9); wantTgt = new Vector3(e.x + fx_ * 12, e.y + 1.2, e.z + fz_ * 12);
     } else {
-      const back = 7.4 + Math.abs(e.speed) * 0.11 + (e.boost > 0 ? 1.2 : 0), up = 2.5 + e.y - ground - 0.9 + spdN * 0.4;
+      const far = camMode === 'far' ? 1.6 : 1;
+      const back = (7.4 + Math.abs(e.speed) * 0.11 + (e.boost > 0 ? 1.2 : 0)) * far, up = (2.5 + spdN * 0.4) * far + e.y - ground - 0.9;
       const lag = clamp(e.steer * 1.4, -1.6, 1.6); // lateral lag on turns
       const cx = e.x - fx_ * back + fz_ * lag, cz = e.z - fz_ * back - fx_ * lag;
       const cy = Math.max(terrain.height(cx, cz) + 1.6, ground + up);
-      wantPos = new Vector3(cx, cy, cz); wantTgt = new Vector3(e.x + fx_ * 5, e.y + 0.8, e.z + fz_ * 5);
+      wantPos = new Vector3(cx, cy, cz); wantTgt = new Vector3(e.x + fx_ * 5 * far, e.y + 0.8, e.z + fz_ * 5 * far);
     }
     if (!camInit) { camPos.copyFrom(wantPos); camTgt.copyFrom(wantTgt); camInit = true; }
     const kP = m.countdown > 0 ? 3 : (camMode === 'hood' ? 30 : 7);
