@@ -35,6 +35,12 @@ export class HUD {
     const lowE = e === me && e.alive && e.energy < 22; $('lowE').classList.toggle('hidden', !lowE);
     $('spect').classList.toggle('hidden', viewing === me); if (viewing !== me) $('spectName').textContent = viewing.name;
   }
+  /** screen-space marker over the nearest food */
+  marker(screen: { x: number; y: number; visible: boolean } | null, label: string) {
+    let el = document.getElementById('marker'); if (!el) { el = document.createElement('div'); el.id = 'marker'; el.innerHTML = '<span class="pin">◆</span><span class="lbl"></span>'; $('hud').appendChild(el); }
+    if (!screen || !screen.visible) { el.style.display = 'none'; return; }
+    el.style.display = 'flex'; el.style.left = screen.x + 'px'; el.style.top = screen.y + 'px'; (el.querySelector('.lbl') as HTMLElement).textContent = label;
+  }
   showOver(match: Match, me: Rider) {
     const place = match.standings.findIndex(s => s.id === me.id) + 1; const winner = match.standings[0];
     $('overTitle').textContent = place === 1 ? 'YOU WIN!' : (winner ? winner.name + ' wins' : 'Race over'); $('overTitle').className = place === 1 ? 'win' : '';

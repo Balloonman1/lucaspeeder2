@@ -1,5 +1,5 @@
 // Speeder Forager 2.0: boot, scene assembly, match loop, camera, HUD and input.
-import { Vector3, Color3, Color4, TransformNode, MeshBuilder, Mesh, StandardMaterial, PBRMaterial, AssetContainer, ParticleSystem, Quaternion } from '@babylonjs/core';
+import { Vector3, Color3, Color4, TransformNode, MeshBuilder, Mesh, StandardMaterial, PBRMaterial, AssetContainer, ParticleSystem, Quaternion, Matrix } from '@babylonjs/core';
 import { bootEngine } from './engine/boot';
 import { createWorld, type World } from './engine/world';
 import { Terrain } from './engine/terrain';
@@ -94,7 +94,7 @@ async function main() {
     match.spawnAllItems();
     for (const r of match.riders) addRiderVis(r);
     for (const it of match.items) addItemVis(it);
-    $('start').classList.add('hidden'); $('over').classList.add('hidden'); hud.show(true); hud.countdown(4);
+    $('start').classList.add('hidden'); $('over').classList.add('hidden'); hud.show(true); hud.countdown(4); hud.message('Follow the gold beams and the marker to food. W to go.', 'boost');
     world.camera.fov = 1.05; world.setTimeOfDay(START_CLOCK);
   }
   function addRiderVis(r: Rider) {
@@ -221,7 +221,12 @@ async function main() {
         syncVisuals(dt, m.t);
         let view = meR; if (!meR.alive) { if (!spectating || !m.riders.find(r => r.id === spectating)?.alive) cycleSpectate(); view = m.riders.find(r => r.id === spectating) || meR; }
         updateCamera(dt, view, riderVis.get(view.id));
-        if (m.running) hud.update(m, meR, view, Math.abs(view.speed) * 3.6);
+        if (m.running) { hud.update(m, meR, view, Math.abs(view.speed) * 3.6);
+          const jam = view.blind > 0 && view === meR; const [tgt] = jam ? [null] : m.nearestItem(view.x, view.z, it => it.kind === 'food');
+          if (tgt) { const wp = new Vector3(tgt.x, terrain.height(tgt.x, tgt.z) + 2.2, tgt.z); const p = Vector3.Project(wp, Matrix.Identity(), scene.getTransformMatrix(), cam.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
+            const inFront = Vector3.Dot(wp.subtract(cam.position), cam.getForwardRay().direction) > 0; const sx = p.x / engine.getHardwareScalingLevel(), sy = p.y / engine.getHardwareScalingLevel();
+            hud.marker({ x: clamp(sx, 40, innerWidth - 40), y: clamp(sy, 60, innerHeight - 120), visible: inFront }, FOODS[tgt.type].name + ' · ' + Math.round(Math.hypot(tgt.x - view.x, tgt.z - view.z)) + ' m'); }
+          else hud.marker(null, ''); }
         audio.engine(Math.min(1, Math.abs(meR.speed) / 28), meR.boost > 0, meR.alive);
         // auto step-down when the frame rate stays low
         if (m.countdown <= 0 && !stepped) { perfAcc += raw; perfN++; perfT += raw; if (perfT > 7) { const fps = perfN / perfAcc; perfAcc = perfN = perfT = 0; const order = ['low', 'medium', 'high', 'ultra']; const i = order.indexOf(q.name); if (fps < 38 && i > 0) { stepped = true; saveQuality(order[i - 1]); hud.message('Graphics set to ' + order[i - 1] + ' for next race to keep it smooth', 'boost'); } } }

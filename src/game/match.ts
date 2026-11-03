@@ -50,7 +50,8 @@ export class Match {
     return [this.rng.range(-200, 200), this.rng.range(-200, 200)];
   }
   spawnItem(kind: Item['kind'], type?: string): Item { const [x, z] = this.freeSpot(); if (kind === 'food') type = type || CANYON_FOODS[this.rng.int(CANYON_FOODS.length)]; const it: Item = { id: this.items.length, kind, type: type || kind, x, z, alive: true, respawn: 0, phase: this.rng.range(0, 6) }; this.items.push(it); return it; }
-  spawnAllItems() { for (let i = 0; i < RULES.foodsPerMatch; i++) this.spawnItem('food', CANYON_FOODS[i % CANYON_FOODS.length]); for (let i = 0; i < RULES.drinks; i++) this.spawnItem('drink'); for (let i = 0; i < RULES.cherries; i++) this.spawnItem('cherry'); for (let i = 0; i < RULES.tomatoes; i++) this.spawnItem('tomato'); }
+  spawnAllItems() { for (let i = 0; i < RULES.foodsPerMatch; i++) this.spawnItem('food', CANYON_FOODS[i % CANYON_FOODS.length]);
+    for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2 + 0.4; const it = this.spawnItem('food', CANYON_FOODS[(i * 2 + 1) % CANYON_FOODS.length]); it.x = Math.cos(a) * 38; it.z = Math.sin(a) * 38; } for (let i = 0; i < RULES.drinks; i++) this.spawnItem('drink'); for (let i = 0; i < RULES.cherries; i++) this.spawnItem('cherry'); for (let i = 0; i < RULES.tomatoes; i++) this.spawnItem('tomato'); }
   killItem(it: Item, delay: number) { it.alive = false; it.respawn = delay; }
   reviveItem(it: Item) { const [x, z] = this.freeSpot(); it.x = x; it.z = z; it.alive = true; }
   aliveRiders() { return this.riders.filter(e => e.alive && !e.clone); }
@@ -166,7 +167,7 @@ export class Match {
       if (e.boost > 0) e.boost -= dt; if (e.blind > 0) e.blind -= dt;
       for (const it of this.items) { if (it.alive && (e.y - this.ground.height(it.x, it.z)) < 3.4 && Math.hypot(it.x - e.x, it.z - e.z) < RULES.pickupRadius) this.hostPickup(e, it); }
       if (e.clone) continue;
-      const lenK = 300 / this.len;
+      const lenK = Math.sqrt(300 / this.len);          // Quick Play drains ~1.8x, not 3.3x squared
       e.energy -= (2.0 + this.t * 0.014 * lenK) * lenK * this.stat(e).drain * (e.boost > 0 ? 1.4 : 1) * (this.t > this.len - Math.min(60, this.len * 0.2) ? 2.2 : 1) * dt; e.survived = this.t;
       if (e.energy <= 0) { e.energy = 0; e.alive = false; this.elim.unshift(e.id); this.msg(e.name + ' is out of energy!', 'bad', 'all'); this.emit({ t: 'out', rider: e }); for (const c of this.riders) if (c.clone && c.owner === e.id) c.alive = false; }
     }

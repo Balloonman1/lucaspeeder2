@@ -115,7 +115,7 @@ export function buildLocator(scene: Scene, color: Color3): TransformNode {
   const g = new TransformNode('locator', scene);
   const ringM = new StandardMaterial('ringM' + color.toHexString(), scene); ringM.diffuseTexture = ringTex!; ringM.opacityTexture = ringTex!; ringM.emissiveColor = color; ringM.disableLighting = true; ringM.alphaMode = 1; ringM.backFaceCulling = false;
   const ring = MeshBuilder.CreatePlane('ring', { size: 3.2 }, scene); ring.material = ringM; ring.rotation.x = Math.PI / 2; ring.position.y = 0.08; ring.parent = g; ring.isPickable = false;
-  const colM = new StandardMaterial('colM' + color.toHexString(), scene); colM.emissiveColor = color.scale(0.35); colM.alpha = 0.12; colM.disableLighting = true; colM.alphaMode = 1; colM.backFaceCulling = false;
-  const col = MeshBuilder.CreateCylinder('column', { height: 14, diameterTop: 0.9, diameterBottom: 1.4, tessellation: 16, cap: Mesh.NO_CAP }, scene); col.material = colM; col.position.y = 7; col.parent = g; col.isPickable = false;
+  const colM = new StandardMaterial('colM' + color.toHexString(), scene); colM.emissiveColor = color.scale(1.6); colM.alpha = 0.28; colM.disableLighting = true; colM.alphaMode = 1; colM.backFaceCulling = false;
+  const col = MeshBuilder.CreateCylinder('column', { height: 60, diameterTop: 0.25, diameterBottom: 1.6, tessellation: 16, cap: Mesh.NO_CAP }, scene); col.material = colM; col.position.y = 30; col.applyFog = false; col.parent = g; col.isPickable = false;
   return g;
 }

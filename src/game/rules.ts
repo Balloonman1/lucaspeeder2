@@ -25,9 +25,9 @@ export const FOODS: Record<string, FoodDef> = {
 };
 export const CANYON_FOODS = ['rice', 'veg', 'strawberry', 'raspberry', 'milk', 'bagel', 'toast'];
 export const RULES = {
-  foodsPerMatch: 18, drinks: 2, cherries: 1, tomatoes: 4,
+  foodsPerMatch: 24, drinks: 2, cherries: 1, tomatoes: 4,
   foodRespawn: 3, drinkRespawn: 30, tomatoRespawn: 20, cherryRespawn: 50,
   jumpCost: 2, flipCost: 5, crashCost: 8, closeCallBonus: 3, comboWindow: 5,
   drinkSeconds: 8, jamSeconds: 10, tomatoRange: 45, tomatoSpeed: 46, maxTomatoes: 3, maxClones: 2,
-  pickupRadius: 3.0, countdown: 3.6,
+  pickupRadius: 3.6, countdown: 3.6,
 };

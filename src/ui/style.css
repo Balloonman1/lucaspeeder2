@@ -56,3 +56,7 @@ button.primary { background: linear-gradient(90deg, var(--gold), #ffd97a); color
 .foot { margin-top: 12px; font-size: 12px; color: var(--dim); }
 .stats { display: flex; gap: 28px; margin: 10px 0 16px; } .stats div { display: flex; flex-direction: column; } .stats b { font-size: 32px; font-weight: 900; color: var(--gold); } .stats small { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
 .stand { padding-left: 22px; margin: 0 0 12px; columns: 2; } .stand li { padding: 4px 0; } .stand li small { color: var(--dim); margin-left: 8px; }
+
+#marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--gold); font-weight: 800; letter-spacing: .08em; font-size: 13px; text-transform: uppercase; }
+#marker .pin { font-size: 22px; animation: bob 1.2s ease-in-out infinite; text-shadow: 0 0 12px rgba(243,197,74,.9); } #marker .lbl { background: rgba(8,12,20,.55); padding: 2px 8px; border-radius: 3px; }
+@keyframes bob { 50% { transform: translateY(-5px); } }
