@@ -7,8 +7,11 @@ export interface BootResult { engine: AbstractEngine; backend: 'webgpu' | 'webgl
 
 export async function bootEngine(canvas: HTMLCanvasElement): Promise<BootResult> {
   const params = new URLSearchParams(location.search);
-  const forceGL = params.has('webgl');
-  if (!forceGL) {
+  // WebGPU is opt-in (?webgpu) until the custom terrain/vegetation shaders are ported to WGSL: on WebGPU
+  // Babylon compiles their GLSL through glslang/twgsl fetched from cdn.babylonjs.com, which is slow or
+  // blocked on some networks and left the loader stuck at "Compiling shaders".
+  const wantGPU = params.has('webgpu') && !params.has('webgl');
+  if (wantGPU) {
     try {
       if (await WebGPUEngine.IsSupportedAsync) {
         const engine = new WebGPUEngine(canvas, { antialias: true, stencil: true, adaptToDeviceRatio: false, powerPreference: 'high-performance' });

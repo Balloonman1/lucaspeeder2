@@ -46,7 +46,11 @@ async function main() {
   await preloadItems(scene);
   const fx = new FX(scene, q); const audio = new GameAudio(); const hud = new HUD();
   setLoad(0.95, 'Compiling shaders');
-  await scene.whenReadyAsync();
+  // watchdog: never leave the player on the loading screen. If shaders do not come up in time on WebGPU,
+  // reload on the verified WebGL 2 path; on WebGL just continue (materials compile on first use).
+  const ready = scene.whenReadyAsync(); let timedOut = false;
+  await Promise.race([ready, new Promise<void>(r => setTimeout(() => { timedOut = true; r(); }, backend === 'webgpu' ? 25000 : 40000))]);
+  if (timedOut && backend === 'webgpu') { const u = new URL(location.href); u.searchParams.delete('webgpu'); u.searchParams.set('webgl', '1'); location.replace(u.toString()); return; }
 
   // ---------- ground adapter for the simulation ----------
   const ground = { height: (x: number, z: number) => terrain.height(x, z), normal: (x: number, z: number) => { const n = terrain.normal(x, z); return { x: n.x, y: n.y, z: n.z }; },
@@ -205,8 +209,9 @@ async function main() {
       if (m.running && !paused) {
         const simx = +(params.get('simx') || 1);
         for (let k = 1; k < simx; k++) { m.step(dt, readInput()); m.events.length = 0; }
-        if (m.countdown > 0) { const before = Math.ceil(m.countdown); m.step(dt, readInput()); const after = Math.ceil(m.countdown); if (after !== before) { hud.countdown(after > 0 ? after : 0); audio.play('click', 0.5, after > 0 ? 1 : 1.5); } if (m.countdown <= 0) setTimeout(() => hud.countdown(null), 600); }
-        else m.step(dt, readInput());
+        const before = Math.ceil(Math.max(0, m.countdown)); m.step(dt, readInput()); const after = Math.ceil(Math.max(0, m.countdown));
+        if (after !== before) { hud.countdown(after > 0 ? after : 0); audio.play('click', 0.5, after > 0 ? 1 : 1.5); if (after <= 0) setTimeout(() => hud.countdown(null), 600); }
+        if (m.t > 1) hud.countdown(null);
         for (const e of m.events.splice(0)) handle(e);
         if (match !== m) return;
         const clock = (START_CLOCK + m.t / DAY_LEN) % 1; world.setTimeOfDay(clock);
