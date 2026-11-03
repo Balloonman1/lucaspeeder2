@@ -196,7 +196,8 @@ async function main() {
       for (const w of v.wash) { w.emitRate = rate; const s = splat.sample(r.x, r.z); const sand = s[1]; w.color1.set(0.78 - sand * 0.05, 0.66, 0.5 + sand * 0.1, onTrail ? 0.4 : 0.22); w.color2.copyFrom(w.color1); w.color2.a *= 0.7; }
     }
     for (const it of m.items) { const v = itemVis.get(it.id); if (!v) continue; const en = it.alive; if (v.node.isEnabled() !== en) { v.node.setEnabled(en); v.locator.setEnabled(en); if (en) placeItem(it); }
-      if (en) { v.locator.rotation.y = t * 0.6 + it.phase; const sc = 1 + 0.06 * Math.sin(t * 3 + it.phase); v.locator.scaling.set(sc, 1, sc); } }
+      if (en) { v.locator.rotation.y = t * 0.6 + it.phase; const sc = 1 + 0.06 * Math.sin(t * 3 + it.phase); v.locator.scaling.set(sc, 1, sc);
+        const beam = v.locator.getChildMeshes().find(c => c.name === 'beam'); if (beam) { const d = Math.hypot(it.x - cam.position.x, it.z - cam.position.z); beam.visibility = clamp((d - 18) / 20, 0, 1) * clamp((150 - d) / 40, 0, 1); } } }
     // tomatoes in flight
     while (tomatoMeshes.length < m.toms.length) { const s = MeshBuilder.CreateSphere('tomF', { diameter: 0.5, segments: 12 }, scene); s.material = tomatoM; s.isPickable = false; tomatoMeshes.push(s); }
     tomatoMeshes.forEach((s, i) => { const tm = m.toms[i]; s.setEnabled(!!tm); if (tm) { s.position.set(tm.x, tm.y, tm.z); s.rotation.x += dt * 12; } });
@@ -225,7 +226,7 @@ async function main() {
           const jam = view.blind > 0 && view === meR; const [tgt] = jam ? [null] : m.nearestItem(view.x, view.z, it => it.kind === 'food');
           if (tgt) { const wp = new Vector3(tgt.x, terrain.height(tgt.x, tgt.z) + 2.2, tgt.z); const p = Vector3.Project(wp, Matrix.Identity(), scene.getTransformMatrix(), cam.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
             const inFront = Vector3.Dot(wp.subtract(cam.position), cam.getForwardRay().direction) > 0; const sx = p.x / engine.getHardwareScalingLevel(), sy = p.y / engine.getHardwareScalingLevel();
-            hud.marker({ x: clamp(sx, 40, innerWidth - 40), y: clamp(sy, 60, innerHeight - 120), visible: inFront }, FOODS[tgt.type].name + ' · ' + Math.round(Math.hypot(tgt.x - view.x, tgt.z - view.z)) + ' m'); }
+            const dist = Math.hypot(tgt.x - view.x, tgt.z - view.z); hud.marker({ x: clamp(sx, 40, innerWidth - 40), y: clamp(sy, 60, innerHeight - 120), visible: inFront && dist > 14 }, Math.round(dist) + ' m'); }
           else hud.marker(null, ''); }
         audio.engine(Math.min(1, Math.abs(meR.speed) / 28), meR.boost > 0, meR.alive);
         // auto step-down when the frame rate stays low
