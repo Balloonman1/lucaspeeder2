@@ -107,16 +107,35 @@ export class Match {
   }
 
   // ---------- bots and clones ----------
+  /** Pick a target the bot keeps until it is gone. Items other bots already claimed cost extra, and each bot has
+   *  its own taste so the pack fans out instead of chasing one bowl. */
+  private chooseTarget(e: Rider): Item | null {
+    const wantFood = e.clone || e.energy < 80 || e.tomatoes >= 3;
+    const claimed = new Map<number, number>(); for (const o of this.riders) if (o !== e && o.bot && o.alive && o.botTarget && o.botTarget.alive) claimed.set(o.botTarget.id, (claimed.get(o.botTarget.id) || 0) + 1);
+    const taste = (e as any)._taste || ((e as any)._taste = this.rng.range(0, 1));
+    let best: Item | null = null, bestScore = 1e9;
+    for (const it of this.items) { if (!it.alive) continue;
+      const ok = it.kind === 'food' ? true : it.kind === 'tomato' ? (!e.clone && e.tomatoes < 3) : it.kind === 'drink' ? !e.clone : false; if (!ok) continue;
+      const d = Math.hypot(it.x - e.x, it.z - e.z);
+      let score = d;
+      if (it.kind === 'food') score *= wantFood ? 1 : 1.8; else score *= 0.9;                       // hungry bots favour food
+      score += 55 * (claimed.get(it.id) || 0);                                                      // someone is already going there
+      score *= 0.75 + 0.5 * Math.abs(Math.sin(it.id * 2.3 + taste * 6.28));                        // per-bot preference
+      if (score < bestScore) { bestScore = score; best = it; } }
+    return best;
+  }
   botUpdate(e: Rider, dt: number) {
     let target: Item | null = null, desired = e.heading;
     if (e.blind > 0) { e.wander += (this.rng.next() - 0.5) * dt * 3; desired = e.heading + e.wander * 0.2; }
-    else { const wantFood = e.clone || e.energy < 75 || e.tomatoes >= 3;
-      [target] = this.nearestItem(e.x, e.z, it => it.kind === 'food' ? wantFood : it.kind === 'tomato' ? (!e.clone && e.tomatoes < 3) : it.kind === 'drink' ? !e.clone : false);
-      if (!target) [target] = this.nearestItem(e.x, e.z, it => it.kind === 'food');
+    else {
+      (e as any)._retarget = ((e as any)._retarget || 0) - dt;
+      if (!e.botTarget || !e.botTarget.alive || (e as any)._retarget <= 0) { e.botTarget = this.chooseTarget(e); (e as any)._retarget = 2.5 + this.rng.range(0, 2); }
+      target = e.botTarget;
       if (target) desired = Math.atan2(target.x - e.x, target.z - e.z); }
     let diff = Math.atan2(Math.sin(desired - e.heading), Math.cos(desired - e.heading));
     const dx = Math.sin(e.heading), dz = Math.cos(e.heading); let push = 0;
     for (const o of this.obstacles) { const ox = o.x - e.x, oz = o.z - e.z; const fwd = ox * dx + oz * dz; if (fwd < 0 || fwd > 16) continue; const lat = ox * dz - oz * dx; if (Math.abs(lat) < o.r + 2.6) push += (lat > 0 ? -1 : 1) * (1 - fwd / 16); }
+    for (const o of this.riders) { if (o === e || !o.alive) continue; const ox = o.x - e.x, oz = o.z - e.z; const fwd = ox * dx + oz * dz; if (fwd < 0 || fwd > 10) continue; const lat = ox * dz - oz * dx; if (Math.abs(lat) < 3.2) push += (lat > 0 ? -1 : 1) * 0.6 * (1 - fwd / 10); }
     if (Math.abs(push) > 0.01) diff = push * 2.2;
     const turn = clamp(diff, -2.6 * dt, 2.6 * dt); e.heading += turn; e.steer += (clamp(diff * 2, -1, 1) - e.steer) * Math.min(1, 6 * dt);
     const maxS = (e.clone ? 23 : (this.stat(e).speed - 9) + Math.min(7, this.t * 0.05)) * (e.boost > 0 ? 1.8 : 1);
