@@ -13,12 +13,15 @@
   "dependencies": {
     "@babylonjs/core": "^9.33.2",
     "@babylonjs/loaders": "^9.33.2",
-    "@babylonjs/materials": "^9.33.2"
+    "@babylonjs/materials": "^9.33.2",
+    "mqtt": "^5.16.1"
   },
   "devDependencies": {
+    "aedes": "^0.51.3",
     "pngjs": "^7.0.0",
     "puppeteer-core": "^25.16.0",
     "typescript": "^5.9.3",
-    "vite": "^6.4.5"
+    "vite": "^6.4.5",
+    "ws": "^8.22.1"
   }
 }

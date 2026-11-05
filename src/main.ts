@@ -14,6 +14,7 @@ import { GameAudio } from './engine/audio';
 import { Match, type Rider, type Item, type Input, type MatchEvent } from './game/match';
 import { BIKE_COLORS, TRIMS, BOT_NAMES, MAX_PLAYERS, FOODS, RULES } from './game/rules';
 import { HUD } from './ui/hud';
+import { Net, type NetMsg } from './net/net';
 import { SeededRandom, clamp, lerp } from './shared/random';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -84,19 +85,122 @@ async function main() {
     for (const v of itemVis.values()) { v.node.dispose(false, true); v.locator.dispose(false, true); } for (const m of tomatoMeshes) m.dispose(); tomatoMeshes = [];
     riderVis = new Map(); itemVis = new Map();
   }
+  // ---------- multiplayer state ----------
+  const net = new Net(); let mode: 'solo' | 'host' | 'client' = 'solo';
+  let outbox: NetMsg[] = []; let snapAcc = 0; let inAcc = 0; let lostHostT = 0;
+  const spawnSpots = () => { const out: [number, number][] = []; for (let i = 0; i < MAX_PLAYERS; i++) { const a = i / MAX_PLAYERS * Math.PI * 2; out.push([Math.cos(a) * 16, Math.sin(a) * 16]); } return out; };
+  const headingFor = (x: number, z: number) => Math.atan2(-x, -z) + Math.PI;
+
+  function beginMatchVisuals() {
+    for (const r of match!.riders) addRiderVis(r);
+    for (const it of match!.items) addItemVis(it);
+    $('start').classList.add('hidden'); $('over').classList.add('hidden'); $('room').classList.add('hidden'); hud.show(true); hud.countdown(4); hud.message('Follow the light beams and the marker to food. W to go.', 'boost');
+    world.camera.fov = 1.05; world.setTimeOfDay(START_CLOCK); camInit = false;
+  }
+  /** Solo or host: build the roster (humans first, bots fill the rest) and spawn items. */
   function startMatch() {
     clearMatch(); audio.ensure();
-    const seed = Math.floor(Math.random() * 1e9); match = new Match(seed, matchLen, 'p0', ground, obstacles); spectating = null; paused = false;
-    const rng = new SeededRandom(seed); const hats = BOT_NAMES.slice(); const spots: [number, number, number][] = [];
-    for (let i = 0; i < MAX_PLAYERS; i++) { const a = i / MAX_PLAYERS * Math.PI * 2; spots.push([Math.cos(a) * 16, Math.sin(a) * 16, a]); }
-    match.addRider({ id: 'p0', name: me.name, color: me.color, accent: me.accent, bike: 'scout', bot: false, x: spots[0][0], z: spots[0][1], heading: Math.atan2(-spots[0][0], -spots[0][1]) + Math.PI });
-    for (let i = 1; i < MAX_PLAYERS; i++) { const s = spots[i]; match.addRider({ id: 'b' + i, name: hats[(i * 7) % hats.length], color: BIKE_COLORS[(i * 3 + 1) % BIKE_COLORS.length], accent: TRIMS[rng.int(TRIMS.length)], bike: 'scout', bot: true, x: s[0], z: s[1], heading: Math.atan2(-s[0], -s[1]) + Math.PI }); }
+    const seed = Math.floor(Math.random() * 1e9); match = new Match(seed, matchLen, mode === 'host' ? net.myId : 'p0', ground, obstacles); spectating = null; paused = false;
+    const rng = new SeededRandom(seed); const spots = spawnSpots();
+    const humans = mode === 'host' ? net.lobby.slice(0, MAX_PLAYERS) : [{ id: 'p0', name: me.name, color: me.color, accent: me.accent }];
+    const used = new Set(humans.map(h => h.name)); const botNames = BOT_NAMES.filter(n => !used.has(n));
+    const roster: any[] = [];
+    humans.forEach((h, i) => { const [x, z] = spots[i]; roster.push({ id: h.id, name: h.name, color: h.color, accent: h.accent, bike: 'scout', bot: false, x, z, heading: headingFor(x, z) }); });
+    for (let i = humans.length; i < MAX_PLAYERS; i++) { const [x, z] = spots[i]; roster.push({ id: 'b' + i, name: botNames[(i * 7) % botNames.length], color: BIKE_COLORS[(i * 3 + 1) % BIKE_COLORS.length], accent: TRIMS[rng.int(TRIMS.length)], bike: 'scout', bot: true, x, z, heading: headingFor(x, z) }); }
+    for (const r of roster) match.addRider(r);
     match.spawnAllItems();
-    for (const r of match.riders) addRiderVis(r);
-    for (const it of match.items) addItemVis(it);
-    $('start').classList.add('hidden'); $('over').classList.add('hidden'); hud.show(true); hud.countdown(4); hud.message('Follow the gold beams and the marker to food. W to go.', 'boost');
-    world.camera.fov = 1.05; world.setTimeOfDay(START_CLOCK);
+    if (mode === 'host') { net.racing = true; outbox = []; net.broadcast({ t: 'start', seed, len: matchLen, players: roster, items: match.items.map(it => ({ kind: it.kind, type: it.type, x: it.x, z: it.z })) }); }
+    beginMatchVisuals();
   }
+  /** Player in someone else's room: build the same race from the host's start message. */
+  function startClientMatch(d: NetMsg) {
+    clearMatch(); audio.ensure(); mode = 'client'; matchLen = d.len;
+    match = new Match(d.seed, d.len, net.myId, ground, obstacles); spectating = null; paused = false; lostHostT = 0;
+    for (const p of d.players) match.addRider(p);
+    d.items.forEach((it: any, i: number) => match!.items.push({ id: i, kind: it.kind, type: it.type, x: it.x, z: it.z, alive: true, respawn: 0, phase: (i * 1.7) % 6 }));
+    beginMatchVisuals();
+  }
+
+  // ---------- host: snapshots and events out, player inputs in ----------
+  function serialise(e: MatchEvent): NetMsg | null {
+    switch (e.t) {
+      case 'msg': return { t: 'msg', text: e.text, cls: e.cls, to: e.to };
+      case 'announce': return { t: 'announce', text: e.text, sub: e.sub, cls: e.cls, to: e.to };
+      case 'sound': return { t: 'sound', name: e.name, to: e.to };
+      case 'pickup': return { t: 'pickup', i: e.item.id, by: e.by.id };
+      case 'crash': return { t: 'crash', r: e.rider.id };
+      case 'jump': return { t: 'jump', r: e.rider.id, flip: e.flip };
+      case 'land': return { t: 'land', r: e.rider.id, force: e.force };
+      case 'throw': return { t: 'throw', r: e.rider.id };
+      case 'hit': return { t: 'hit', x: e.tomato.x, y: e.tomato.y, z: e.tomato.z, target: e.target.id };
+      case 'out': return { t: 'out', r: e.rider.id };
+      case 'clone': { const c = e.rider; return { t: 'clone', r: { id: c.id, name: c.name, color: c.color, accent: c.accent, bike: c.bike, bot: true, clone: true, owner: c.owner, x: c.x, z: c.z, heading: c.heading } }; }
+      case 'over': return { t: 'over', standings: match!.standings };
+    }
+    return null;
+  }
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  function sendSnapshot() {
+    const m = match!;
+    net.broadcast({ t: 'snap', gt: r2(m.t), cd: r2(m.countdown),
+      ents: m.riders.map(e => [e.id, r2(e.x), r2(e.y), r2(e.z), r2(e.heading), r2(e.speed), r2(e.lean), r2(e.pitch), r2(e.roll), Math.round(e.energy * 10) / 10, e.alive ? 1 : 0, r2(e.blind), r2(e.boost), e.tomatoes, e.foodEaten, e.flipping ? r2(e.flipA) : 0, e.airborne ? 1 : 0, r2(e.steer), Math.floor(e.survived)]),
+      items: m.items.map(it => [it.alive ? 1 : 0, r2(it.x), r2(it.z)]), toms: m.toms.map(t => [r2(t.x), r2(t.y), r2(t.z)]), ev: outbox.splice(0) });
+  }
+  net.onHostMsg = (from, d) => {
+    const m = match; if (!m || mode !== 'host') return; const e = m.riders.find(r => r.id === from); if (!e || !e.alive || e.bot) return;
+    if (d.t === 'in') { e.x = d.x; e.y = d.y; e.z = d.z; e.heading = d.h; e.speed = d.s; e.lean = d.l; e.pitch = d.p; e.roll = d.r; e.steer = d.st; e.airborne = !!d.air; e.flipping = d.fa > 0; e.flipA = d.fa;
+      if (d.cr) { e.crashes += d.cr; m.emit({ t: 'crash', rider: e }); } if (d.cc) e.closeCalls += d.cc; if (d.jc) e.jumpCost += d.jc; }
+    else if (d.t === 'throw') { if (e.tomatoes > 0) m.hostThrow(e); }
+  };
+  net.onDrop = id => { const m = match; if (!m || mode !== 'host') return; const e = m.riders.find(r => r.id === id); if (e && e.alive && !e.bot) { e.bot = true; m.msg(e.name + ' lost connection. A bot takes over.', 'bad', 'all'); } };
+
+  // ---------- player: apply host snapshots and events ----------
+  net.onClientMsg = d => {
+    if (d.t === 'start') { startClientMatch(d); return; }
+    const m = match; if (!m || mode !== 'client') return;
+    if (d.t === 'snap') {
+      m.t = d.gt; m.countdown = d.cd;
+      for (const a of d.ents) { let e = m.riders.find(r => r.id === a[0]);
+        if (!e) continue;
+        const [, x, y, z, h, sp, l, p, ro, en, al, bl, bo, tm, fd, fa, air, st, sv] = a;
+        e.energy = en; e.alive = !!al; e.blind = bl; e.boost = bo; e.tomatoes = tm; e.foodEaten = fd; e.survived = sv;
+        if (e.id !== m.localId) { const n = (e as any).net || ((e as any).net = {}); Object.assign(n, { x, y, z, h, sp, l, p, ro, fa, air, st, at: performance.now() }); if ((e as any).fresh !== false) { e.x = x; e.y = y; e.z = z; e.heading = h; (e as any).fresh = false; } } }
+      d.items.forEach((a: any[], i: number) => { const it = m.items[i]; if (!it) return; it.alive = !!a[0]; it.x = a[1]; it.z = a[2]; });
+      m.toms = d.toms.map((t: number[]) => ({ x: t[0], y: t[1], z: t[2], target: '', from: '', life: 1 }));
+      for (const ev of d.ev) applyRemoteEvent(ev);
+    }
+  };
+  function applyRemoteEvent(ev: NetMsg) {
+    const m = match!; const R = (id: string) => m.riders.find(r => r.id === id);
+    switch (ev.t) {
+      case 'msg': case 'announce': case 'sound': handle(ev as any); break;
+      case 'pickup': { const it = m.items[ev.i], by = R(ev.by); if (it && by) handle({ t: 'pickup', item: it, by }); break; }
+      case 'crash': case 'jump': case 'land': case 'throw': { if (ev.r === m.localId) break; const r = R(ev.r); if (r) handle({ ...(ev as any), rider: r }); break; }
+      case 'hit': { const tg = R(ev.target); if (tg) handle({ t: 'hit', tomato: { x: ev.x, y: ev.y, z: ev.z, target: ev.target, from: '', life: 0 }, target: tg }); break; }
+      case 'out': break;
+      case 'clone': { if (!R(ev.r.id)) { const c = m.addRider(ev.r); addRiderVis(c); } break; }
+      case 'over': { m.standings = ev.standings; m.over = true; handle({ t: 'over' }); break; }
+    }
+  }
+  /** Player side: drive our own bike locally, interpolate everyone else, send our state to the host. */
+  let clientFirstStep = true;
+  function clientTick(dt: number) {
+    const m = match!; const meR = m.riders.find(r => r.id === m.localId)!;
+    if (m.countdown > 0) m.countdown -= dt; else m.t += dt;
+    const inp = clientFirstStep ? readInput() : { ...lastInput, jump: false, flip: false, throw: false }; clientFirstStep = false; const wantThrow = inp.throw; inp.throw = false;
+    if (meR.alive && m.countdown <= 0 && !m.over) m.movePhysics(meR, inp, dt);
+    for (const e of m.events.splice(0)) handle(e);   // local fx: crash sparks, jump, landing, close calls
+    if (wantThrow && meR.tomatoes > 0) net.sendHost({ t: 'throw' });
+    for (const e of m.riders) { if (e.id === m.localId) continue; const n = (e as any).net; if (!n) continue;
+      const lead = Math.min(0.15, (performance.now() - n.at) / 1000); const tx = n.x + Math.sin(n.h) * n.sp * lead, tz = n.z + Math.cos(n.h) * n.sp * lead; const k = Math.min(1, 12 * dt);
+      e.x += (tx - e.x) * k; e.z += (tz - e.z) * k; e.y += (n.y - e.y) * k; e.heading += Math.atan2(Math.sin(n.h - e.heading), Math.cos(n.h - e.heading)) * k;
+      e.speed = n.sp; e.lean = n.l; e.pitch = n.p; e.roll = n.ro; e.steer = n.st; e.airborne = !!n.air; e.flipping = n.fa > 0; e.flipA = n.fa; }
+    inAcc += dt; if (inAcc > 0.05 && meR.alive) { inAcc = 0;
+      net.sendHost({ t: 'in', x: r2(meR.x), y: r2(meR.y), z: r2(meR.z), h: r2(meR.heading), s: r2(meR.speed), l: r2(meR.lean), p: r2(meR.pitch), r: r2(meR.roll), st: r2(meR.steer), air: meR.airborne ? 1 : 0, fa: meR.flipping ? r2(meR.flipA) : 0, cr: meR.crashes, cc: meR.closeCalls, jc: meR.jumpCost });
+      meR.crashes = 0; meR.closeCalls = 0; meR.jumpCost = 0; }
+    if (!m.over && performance.now() - net.lastSnap > 5000) { lostHostT += dt; if (lostHostT > 0.1 && lostHostT < 0.2) hud.message('Lost contact with the host, waiting…', 'bad'); if (lostHostT > 15) { m.over = true; m.running = false; hud.show(false); net.close(); mode = 'solo'; $('over').classList.add('hidden'); $('start').classList.remove('hidden'); setStatus('The host left the race.', true); } } else lostHostT = 0;
+  }
+
   function addRiderVis(r: Rider) {
     const bike = buildBike(scene, { color: r.color, accent: r.accent });
     const rider = makeRider(riderContainer, scene, bike.root, r.clone ? new Color3(0.2, 0.5, 0.25) : Color3.FromHexString(r.color).toLinearSpace().scale(0.35).add(new Color3(0.08, 0.07, 0.06)), r.clone ? new Color3(0.5, 1, 0.6) : new Color3(0.85, 0.9, 1));
@@ -126,27 +230,62 @@ async function main() {
       case 'hit': { fx.burst(new Vector3(e.tomato.x, e.tomato.y, e.tomato.z), new Color4(0.85, 0.1, 0.05, 0.9), 40, 7); if (e.target.id === m.localId) { shake = 1; hud.flash(); } break; }
       case 'out': break;
       case 'clone': addRiderVis(e.rider); break;
-      case 'over': { const meR = m.riders.find(r => r.id === m.localId)!; hud.showOver(m, meR); const place = m.standings.findIndex(s => s.id === meR.id) + 1; audio.play(place === 1 ? 'win' : 'bad', 0.8); audio.engine(0, false, false); hud.show(false); m.running = false; break; }
+      case 'over': { net.racing = false; $('overNote').textContent = mode === 'client' ? 'Waiting for the host to start the next race…' : ''; $('againBtn').classList.toggle('hidden', mode === 'client'); const meR = m.riders.find(r => r.id === m.localId)!; hud.showOver(m, meR); const place = m.standings.findIndex(s => s.id === meR.id) + 1; audio.play(place === 1 ? 'win' : 'bad', 0.8); audio.engine(0, false, false); hud.show(false); m.running = false; break; }
     }
   }
 
   // ---------- input ----------
-  addEventListener('keydown', ev => { const k = ev.key.toLowerCase(); keys[k] = true; if (k === ' ') { ev.preventDefault(); requestJump(); } if (k === 'f') throwReq = true; if (k === 'p' && match && match.running) togglePause(); if (k === 'c') { camMode = CAMS[(CAMS.indexOf(camMode) + 1) % CAMS.length]; camSel.value = camMode; try { localStorage.setItem('sf2.cam', camMode); } catch {} hud.message('Camera: ' + camSel.options[camSel.selectedIndex].text, 'boost'); } if (k === 'tab' && match && !match.riders.find(r => r.id === match!.localId)!.alive) { ev.preventDefault(); cycleSpectate(); } });
+  addEventListener('keydown', ev => { const k = ev.key.toLowerCase(); keys[k] = true; if (k === ' ') { ev.preventDefault(); requestJump(); } if (k === 'f') throwReq = true; if (k === 'p' && match && match.running && mode === 'solo') togglePause(); if (k === 'c') { camMode = CAMS[(CAMS.indexOf(camMode) + 1) % CAMS.length]; camSel.value = camMode; try { localStorage.setItem('sf2.cam', camMode); } catch {} hud.message('Camera: ' + camSel.options[camSel.selectedIndex].text, 'boost'); } if (k === 'tab' && match && !match.riders.find(r => r.id === match!.localId)!.alive) { ev.preventDefault(); cycleSpectate(); } });
   addEventListener('keyup', ev => { keys[ev.key.toLowerCase()] = false; });
   function requestJump() { const now = performance.now(); if (now - lastJump < 420) jumpReq.flip = true; jumpReq.jump = true; lastJump = now; }
   function togglePause() { paused = !paused; $('pause').classList.toggle('hidden', !paused); }
   $('resumeBtn').onclick = () => togglePause();
   function cycleSpectate() { if (!match) return; const alive = match.riders.filter(r => r.alive && !r.clone); if (!alive.length) return; const i = alive.findIndex(r => r.id === spectating); spectating = alive[(i + 1) % alive.length].id; }
-  function readInput(): Input {
+  let lastInput: Input = { fwd: false, back: false, left: false, right: false, jump: false, flip: false, throw: false };
+  function readInput(): Input { lastInput = readInputRaw(); return lastInput; }
+  function readInputRaw(): Input {
     const j = jumpReq.jump, fl = jumpReq.flip, th = throwReq; jumpReq.jump = false; jumpReq.flip = false; throwReq = false;
     if (params.has('drive') && match) { const r = match.riders.find(x => x.id === match!.localId)!; const [t] = match.nearestItem(r.x, r.z, it => it.kind === 'food'); let turn = 0; if (t) { const d = Math.atan2(t.x - r.x, t.z - r.z) - r.heading; turn = clamp(Math.atan2(Math.sin(d), Math.cos(d)) * 2, -1, 1); } return { fwd: true, back: false, left: false, right: false, turn, jump: match.t > 4 && match.t % 9 < 0.03, flip: false, throw: th }; }
     return { fwd: !!(keys['w'] || keys['arrowup']), back: !!(keys['s'] || keys['arrowdown']), left: !!(keys['a'] || keys['arrowleft']), right: !!(keys['d'] || keys['arrowright']), jump: j, flip: fl, throw: th };
   }
-  $('playBtn').onclick = () => { me.name = ($('nameIn') as HTMLInputElement).value.trim() || 'Rider'; me.color = paintSel.value; me.accent = trimSel.value; try { localStorage.setItem('sf2.rider', JSON.stringify(me)); } catch {} startMatch(); canvas.focus(); };
-  $('againBtn').onclick = () => startMatch(); $('menuBtn').onclick = () => { $('over').classList.add('hidden'); $('start').classList.remove('hidden'); };
+  const saveMe = () => { me.name = ($('nameIn') as HTMLInputElement).value.trim().slice(0, 14) || 'Rider'; me.color = paintSel.value; me.accent = trimSel.value; try { localStorage.setItem('sf2.rider', JSON.stringify(me)); } catch {} };
+  function setStatus(text: string, bad = false) { const el = $('netStatus'); el.textContent = text; el.classList.toggle('bad', bad); }
+  net.onStatus = t => setStatus(t);
+  function showRoom() {
+    $('start').classList.add('hidden'); $('over').classList.add('hidden'); $('room').classList.remove('hidden'); $('roomCode').textContent = net.code;
+    $('copyLink').classList.toggle('hidden', false); $('roomStartBtn').classList.toggle('hidden', !net.host); $('roomModes').classList.toggle('hidden', !net.host);
+    $('roomNote').textContent = net.host ? 'You are the host. Start when everyone is in.' : 'Waiting for the host to start the race…'; renderLobby();
+  }
+  function renderLobby() {
+    const box = $('plist'); box.innerHTML = '';
+    for (let i = 0; i < MAX_PLAYERS; i++) { const p = net.lobby[i]; const d = document.createElement('div'); d.className = 'pl' + (p ? '' : ' bot');
+      const sw = document.createElement('i'); sw.style.background = p ? p.color : '#444'; d.appendChild(sw); const nm = document.createElement('span'); nm.textContent = p ? p.name : 'Bot'; d.appendChild(nm);
+      if (p && p.id === 'p0') { const b = document.createElement('b'); b.textContent = 'HOST'; d.appendChild(b); } else if (p && p.id === net.myId) { const b = document.createElement('b'); b.textContent = 'YOU'; d.appendChild(b); }
+      box.appendChild(d); }
+  }
+  net.onLobby = () => { if (!match || !match.running) { if (net.welcomed) showRoom(); } renderLobby(); };
+  for (const b of Array.from(document.querySelectorAll('#roomModes .mode')) as HTMLButtonElement[]) b.onclick = () => { document.querySelectorAll('#roomModes .mode').forEach(x => x.classList.remove('on')); b.classList.add('on'); matchLen = +b.dataset.len!; };
+  $('playBtn').onclick = () => { saveMe(); net.close(); mode = 'solo'; startMatch(); canvas.focus(); };
+  $('hostBtn').onclick = async () => { saveMe(); ($('hostBtn') as HTMLButtonElement).disabled = ($('joinBtn') as HTMLButtonElement).disabled = true;
+    try { await net.hostRoom({ name: me.name, color: me.color, accent: me.accent }); mode = 'host'; matchLen = 90; showRoom(); } catch (err: any) { setStatus('Online play failed: ' + (err?.message || err) + '. Solo still works.', true); net.close(); }
+    ($('hostBtn') as HTMLButtonElement).disabled = ($('joinBtn') as HTMLButtonElement).disabled = false; };
+  async function join(code: string) { saveMe(); code = code.trim().toUpperCase(); if (code.length !== 4) { setStatus('Room codes are 4 letters.', true); return; }
+    ($('hostBtn') as HTMLButtonElement).disabled = ($('joinBtn') as HTMLButtonElement).disabled = true;
+    try { await net.joinRoom(code, { name: me.name, color: me.color, accent: me.accent }); mode = 'client'; showRoom(); } catch (err: any) { setStatus(err?.message || String(err), true); net.close(); mode = 'solo'; }
+    ($('hostBtn') as HTMLButtonElement).disabled = ($('joinBtn') as HTMLButtonElement).disabled = false; }
+  $('joinBtn').onclick = () => join(($('codeIn') as HTMLInputElement).value);
+  ($('codeIn') as HTMLInputElement).addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') join(($('codeIn') as HTMLInputElement).value); });
+  ($('nameIn') as HTMLInputElement).addEventListener('keydown', ev => ev.stopPropagation());
+  $('roomStartBtn').onclick = () => { if (net.host) { mode = 'host'; startMatch(); canvas.focus(); } };
+  $('leaveBtn').onclick = () => { net.close(); mode = 'solo'; $('room').classList.add('hidden'); $('start').classList.remove('hidden'); setStatus(''); };
+  $('copyLink').onclick = async () => { try { await navigator.clipboard.writeText(net.inviteLink()); $('copyNote').textContent = 'Copied: ' + net.inviteLink(); } catch { $('copyNote').textContent = net.inviteLink(); } };
+  $('againBtn').onclick = () => { if (mode === 'host') startMatch(); else if (mode === 'solo') startMatch(); };
+  $('menuBtn').onclick = () => { $('over').classList.add('hidden'); if (net.online) showRoom(); else $('start').classList.remove('hidden'); };
+  addEventListener('beforeunload', () => net.close());
+  const roomParam = params.get('room'); if (roomParam) { ($('codeIn') as HTMLInputElement).value = roomParam.toUpperCase(); setTimeout(() => join(roomParam), 300); }
   $('btnFull').onclick = () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); };
   $('btnMute').onclick = () => { audio.setMuted(!audio.muted); $('btnMute').textContent = audio.muted ? '🔇' : '🔊'; };
-  $('btnSettings').onclick = () => { if (match && match.running) togglePause(); };
+  $('btnSettings').onclick = () => { if (match && match.running && mode === 'solo') togglePause(); };
   canvas.addEventListener('pointerdown', () => audio.ensure());
 
   // ---------- camera ----------
@@ -213,12 +352,18 @@ async function main() {
     if (match) {
       const m = match; const meR = m.riders.find(r => r.id === m.localId)!;
       if (m.running && !paused) {
-        const simx = +(params.get('simx') || 1);
-        for (let k = 1; k < simx; k++) { m.step(dt, readInput()); m.events.length = 0; }
-        const before = Math.ceil(Math.max(0, m.countdown)); m.step(dt, readInput()); const after = Math.ceil(Math.max(0, m.countdown));
+        const before = Math.ceil(Math.max(0, m.countdown));
+        // On a slow frame, run several 50 ms steps (up to 250 ms) so game time stays real time for everyone.
+        const steps = Math.max(1, Math.min(5, Math.ceil(Math.min(0.25, raw) / 0.05))); const sdt = Math.min(0.25, Math.max(raw, dt)) / steps;
+        if (mode === 'client') { clientFirstStep = true; for (let k = 0; k < steps; k++) clientTick(sdt); }
+        else { const simx = mode === 'solo' ? +(params.get('simx') || 1) : 1;
+          for (let k = 1; k < simx; k++) { m.step(dt, readInput()); m.events.length = 0; }
+          for (let k = 0; k < steps; k++) m.step(sdt, k === 0 ? readInput() : { ...lastInput, jump: false, flip: false, throw: false });
+          for (const e of m.events.splice(0)) { if (mode === 'host') { const se = serialise(e); if (se) outbox.push(se); } handle(e); }
+          if (mode === 'host') { snapAcc += dt; if (snapAcc > 0.066 || m.over) { snapAcc = 0; sendSnapshot(); } } }
+        const after = Math.ceil(Math.max(0, m.countdown));
         if (after !== before) { hud.countdown(after > 0 ? after : 0); audio.play('click', 0.5, after > 0 ? 1 : 1.5); if (after <= 0) setTimeout(() => hud.countdown(null), 600); }
         if (m.t > 1) hud.countdown(null);
-        for (const e of m.events.splice(0)) handle(e);
         if (match !== m) return;
         const clock = (START_CLOCK + m.t / DAY_LEN) % 1; world.setTimeOfDay(clock);
         syncVisuals(dt, m.t);
@@ -239,7 +384,13 @@ async function main() {
     }
     scene.render();
   });
+  let lastBg = performance.now();
+  setInterval(() => { if (!document.hidden || mode !== 'host' || !match || !match.running) { lastBg = performance.now(); return; }
+    const now = performance.now(); const dt = Math.min(0.1, (now - lastBg) / 1000); lastBg = now; const m = match;
+    m.step(dt, { fwd: false, back: false, left: false, right: false, jump: false, flip: false, throw: false });
+    for (const e of m.events.splice(0)) { const se = serialise(e); if (se) outbox.push(se); if (e.t === 'over') handle(e); }
+    sendSnapshot(); }, 66);
   addEventListener('resize', () => engine.resize());
-  (window as any).__sf2 = { scene, engine, get match() { return match; }, startMatch, backend, q };
+  (window as any).__sf2 = { scene, engine, get match() { return match; }, startMatch, backend, q, net, get mode() { return mode; } };
 }
 main().catch(err => { console.error(err); $('loadTxt').textContent = 'Failed to start: ' + (err?.message || err); });

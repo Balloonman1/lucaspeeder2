@@ -60,3 +60,13 @@ button.primary { background: linear-gradient(90deg, var(--gold), #ffd97a); color
 #marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--gold); font-weight: 800; letter-spacing: .08em; font-size: 13px; text-transform: uppercase; }
 #marker .pin { font-size: 22px; animation: bob 1.2s ease-in-out infinite; text-shadow: 0 0 12px rgba(243,197,74,.9); } #marker .lbl { background: rgba(8,12,20,.55); padding: 2px 8px; border-radius: 3px; }
 @keyframes bob { 50% { transform: translateY(-5px); } }
+
+/* multiplayer */
+.mp input.code { width: 110px; min-width: 0; text-transform: uppercase; letter-spacing: .3em; font-weight: 800; text-align: center; }
+.net-status { color: var(--cyan2); font-size: 13px; letter-spacing: .04em; min-height: 18px; }
+.net-status.bad { color: var(--bad); }
+.room-code-wrap { margin: 6px 0 4px; } .room-code-wrap small { color: var(--dim); letter-spacing: .2em; font-size: 11px; }
+.room-code { font-size: 54px; font-weight: 900; letter-spacing: .25em; color: var(--gold); line-height: 1.1; }
+.plist { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 14px 0; }
+.plist .pl { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 4px; font-size: 14px; }
+.plist .pl i { width: 14px; height: 14px; border-radius: 3px; flex: none; } .plist .pl.bot { color: var(--dim); font-style: italic; } .plist .pl b { color: var(--gold); font-weight: 700; font-size: 11px; letter-spacing: .12em; margin-left: auto; }

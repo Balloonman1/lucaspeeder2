@@ -40,8 +40,22 @@
     <label>Camera <select id="camSel"><option value="chase">Chase view</option><option value="far">Far chase</option><option value="hood">Hood view</option></select></label></div>
   <div class="row modes"><button class="mode on" data-len="90">Quick play · 90 s</button><button class="mode" data-len="300">Classic · 5 min</button></div>
   <div class="keys"><kbd>W/S</kbd> throttle, brake <kbd>A/D</kbd> steer <kbd>SPACE</kbd> jump (double-tap backflip) <kbd>F</kbd> throw tomato <kbd>C</kbd> switch camera <kbd>P</kbd> pause</div>
-  <div class="row"><button id="playBtn" class="primary">Race · solo vs 9 bots</button><label>Graphics <select id="qualitySel"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></label></div>
+  <div class="row"><button id="playBtn" class="primary">Race solo · vs 9 bots</button></div>
+  <div class="row mp"><button id="hostBtn">Create room</button><input id="codeIn" class="code" maxlength="4" placeholder="CODE" autocomplete="off"><button id="joinBtn">Join room</button></div>
+  <div class="net-status" id="netStatus"></div>
+  <div class="row"><label>Graphics <select id="qualitySel"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></label></div>
   <div class="foot" id="startNote"></div>
+</div></div>
+
+<div id="room" class="overlay hidden"><div class="card">
+  <h1>Room lobby</h1>
+  <p class="sub">Friends open the game, type this code and press Join, or use the invite link. Empty seats are filled with bots so every race has 10 riders.</p>
+  <div class="room-code-wrap"><small>ROOM CODE</small><div id="roomCode" class="room-code">----</div></div>
+  <div class="row"><button id="copyLink">Copy invite link</button><span id="copyNote" class="net-status"></span></div>
+  <div class="plist" id="plist"></div>
+  <div class="row modes" id="roomModes"><button class="mode on" data-len="90">Quick play · 90 s</button><button class="mode" data-len="300">Classic · 5 min</button></div>
+  <div class="row"><button id="roomStartBtn" class="primary">Start race</button><button id="leaveBtn">Leave room</button></div>
+  <div class="net-status" id="roomNote"></div>
 </div></div>
 
 <div id="pause" class="overlay hidden"><div class="card"><h1>Paused</h1><p class="sub">Press P to keep riding.</p><button id="resumeBtn" class="primary">Resume</button></div></div>
@@ -51,6 +65,7 @@
   <div class="stats"><div><b id="oTime">0s</b><small>survived</small></div><div><b id="oFood">0</b><small>food eaten</small></div><div><b id="oPlace">-</b><small>place</small></div></div>
   <ol class="stand" id="standings"></ol>
   <div class="row"><button id="againBtn" class="primary">Race again</button><button id="menuBtn">Change rider</button></div>
+  <div class="net-status" id="overNote"></div>
 </div></div>
 <script type="module" src="/src/main.ts"></script>
 </body>
