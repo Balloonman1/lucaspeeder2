@@ -115,7 +115,14 @@ export function buildLocator(scene: Scene, color: Color3): TransformNode {
   const g = new TransformNode('locator', scene);
   const ringM = new StandardMaterial('ringM' + color.toHexString(), scene); ringM.diffuseTexture = ringTex!; ringM.opacityTexture = ringTex!; ringM.emissiveColor = color; ringM.disableLighting = true; ringM.alphaMode = 1; ringM.backFaceCulling = false;
   const ring = MeshBuilder.CreatePlane('ring', { size: 3.2 }, scene); ring.material = ringM; ring.rotation.x = Math.PI / 2; ring.position.y = 0.08; ring.parent = g; ring.isPickable = false;
-  const colM = new StandardMaterial('colM' + color.toHexString(), scene); colM.emissiveColor = color.scale(0.5); colM.alpha = 0.1; colM.disableLighting = true; colM.alphaMode = 1; colM.backFaceCulling = false;
-  const col = MeshBuilder.CreateCylinder('column', { height: 10, diameterTop: 0.3, diameterBottom: 1.3, tessellation: 16, cap: Mesh.NO_CAP }, scene); col.material = colM; col.position.y = 5.5; col.name = 'beam'; col.parent = g; col.isPickable = false;
+  // Beam: bright and tall, but it starts 3.5 m up so it never covers the food on the ground.
+  const colM = new StandardMaterial('colM' + color.toHexString(), scene); colM.emissiveColor = color.scale(2.4); colM.alpha = 0.38; colM.disableLighting = true; colM.alphaMode = 1; colM.backFaceCulling = false; colM.disableDepthWrite = true;
+  const col = MeshBuilder.CreateCylinder('column', { height: 34, diameterTop: 0.5, diameterBottom: 1.1, tessellation: 16, cap: Mesh.NO_CAP }, scene); col.material = colM; col.position.y = 3.5 + 17; col.name = 'beam'; col.parent = g; col.isPickable = false; col.applyFog = false;
+  // Bright core line inside the beam, reads at long range.
+  const coreM = new StandardMaterial('coreM' + color.toHexString(), scene); coreM.emissiveColor = color.scale(4); coreM.alpha = 0.85; coreM.disableLighting = true; coreM.alphaMode = 1; coreM.disableDepthWrite = true;
+  const core = MeshBuilder.CreateCylinder('beamCore', { height: 34, diameter: 0.14, tessellation: 8, cap: Mesh.NO_CAP }, scene); core.material = coreM; core.position.y = 3.5 + 17; core.parent = g; core.isPickable = false; core.applyFog = false;
+  // Glowing beacon where the beam starts, just above the food.
+  const orbM = new StandardMaterial('orbM' + color.toHexString(), scene); orbM.emissiveColor = color.scale(3); orbM.disableLighting = true;
+  const orb = MeshBuilder.CreateSphere('beacon', { diameter: 0.45, segments: 12 }, scene); orb.material = orbM; orb.position.y = 3.6; orb.parent = g; orb.isPickable = false; orb.applyFog = false;
   return g;
 }

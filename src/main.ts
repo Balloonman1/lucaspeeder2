@@ -197,7 +197,9 @@ async function main() {
     }
     for (const it of m.items) { const v = itemVis.get(it.id); if (!v) continue; const en = it.alive; if (v.node.isEnabled() !== en) { v.node.setEnabled(en); v.locator.setEnabled(en); if (en) placeItem(it); }
       if (en) { v.locator.rotation.y = t * 0.6 + it.phase; const sc = 1 + 0.06 * Math.sin(t * 3 + it.phase); v.locator.scaling.set(sc, 1, sc);
-        const beam = v.locator.getChildMeshes().find(c => c.name === 'beam'); if (beam) { const d = Math.hypot(it.x - cam.position.x, it.z - cam.position.z); beam.visibility = clamp((d - 18) / 20, 0, 1) * clamp((150 - d) / 40, 0, 1); } } }
+        // Full brightness from 25 m out to 300 m; eases to a third of that up close so the food stays clear.
+        const d = Math.hypot(it.x - cam.position.x, it.z - cam.position.z); const vis = (0.35 + 0.65 * clamp((d - 8) / 17, 0, 1)) * clamp((340 - d) / 40, 0, 1);
+        for (const c of v.locator.getChildMeshes()) if (c.name === 'beam' || c.name === 'beamCore') c.visibility = vis; else if (c.name === 'beacon') { c.visibility = 1; c.position.y = 3.6 + 0.25 * Math.sin(t * 2.5 + it.phase); } } }
     // tomatoes in flight
     while (tomatoMeshes.length < m.toms.length) { const s = MeshBuilder.CreateSphere('tomF', { diameter: 0.5, segments: 12 }, scene); s.material = tomatoM; s.isPickable = false; tomatoMeshes.push(s); }
     tomatoMeshes.forEach((s, i) => { const tm = m.toms[i]; s.setEnabled(!!tm); if (tm) { s.position.set(tm.x, tm.y, tm.z); s.rotation.x += dt * 12; } });
